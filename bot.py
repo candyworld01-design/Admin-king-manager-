@@ -581,7 +581,7 @@ def main():
     app.job_queue.run_daily(
         weekly_review,
         time=dt_time(hour=23, minute=59, tzinfo=TZ),
-        days=(0,),
+        days=(6,),
         name="weekly_admin_review",
     )
 
