@@ -1,3 +1,6 @@
+
+from flask import Flask
+from threading import Thread
 import os
 import re
 import sqlite3
@@ -588,6 +591,17 @@ def main():
     print("Admin Manager Bot is running!")
     app.run_polling()
 
+web_app = Flask(__name__)
 
+@web_app.route("/")
+def home():
+    return "Admin King Manager Bot is alive!", 200
+
+def run_web():
+    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+def start_web():
+    Thread(target=run_web, daemon=True).start()
 if __name__ == "__main__":
+    start_web()
     main()
