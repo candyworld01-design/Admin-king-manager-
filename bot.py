@@ -131,17 +131,35 @@ async def owner_only(update, context):
 
 # ---------------- START / SETUP ----------------
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(
-        "👑 Admin Manager Bot online hai!\n\n"
-        "Mujhe group mein admin banao aur message visibility "
-        "enable karo.\n\n"
-        "/setup - Group setup\n"
-        "/rules - Current rules\n"
-        "/leaderboard - Weekly ranking\n"
-        "/myrank - Apna score"
+
+async def start(update, context):
+    message = (
+        "👑 <b>ADMIN KING MANAGER</b> 👑\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🔥 <i>Your Group. Your Rules. Your King.</i>\n\n"
+        "Welcome to the ultimate group management system! ⚡\n\n"
+        "🏆 <b>MY FEATURES</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "⭐ Unique Message Scoring\n"
+        "🏅 Weekly Leaderboard\n"
+        "👑 Activity-Based Admin Promotion\n"
+        "🛡️ Duplicate Message Protection\n"
+        "🔄 Inactive Admin Review\n\n"
+        "📜 <b>AVAILABLE COMMANDS</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "/setup — Configure your group\n"
+        "/rules — View group rules\n"
+        "/leaderboard — Weekly rankings\n"
+        "/myrank — Check your score\n"
+        "/setscore — Set winner score (Owner)\n"
+        "/setactivity — Set admin activity (Owner)\n\n"
+        "⚡ <b>Stay Active. Earn Points. Rule the Group!</b> 👑"
     )
 
+    await update.effective_message.reply_text(
+        message,
+        parse_mode="HTML"
+    )
 
 async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
