@@ -1,4 +1,4 @@
- """
+"""
 ADMIN KING MANAGER — simple, configurable Telegram group competition bot
 Python: 3.11+
 Hosting: Render Web Service
