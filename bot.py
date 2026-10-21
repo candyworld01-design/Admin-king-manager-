@@ -81,13 +81,15 @@ def init_db():
             comeback_alerts INTEGER NOT NULL DEFAULT 1,
             winner_admin INTEGER NOT NULL DEFAULT 0,
             rotation_enabled INTEGER NOT NULL DEFAULT 0,
-            max_points_per_day INTEGER NOT NULL DEFAULT 50
+            max_points_per_day INTEGER NOT NULL DEFAULT 50,
+            min_messages INTEGER NOT NULL DEFAULT 500
         );
         CREATE TABLE IF NOT EXISTS scores (
             chat_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             points INTEGER NOT NULL DEFAULT 0,
+            messages INTEGER NOT NULL DEFAULT 0,
             wins INTEGER NOT NULL DEFAULT 0,
             best_rank INTEGER NOT NULL DEFAULT 0,
             last_active INTEGER NOT NULL DEFAULT 0,
@@ -117,6 +119,7 @@ def init_db():
             user_id INTEGER NOT NULL,
             period_end INTEGER NOT NULL,
             points INTEGER NOT NULL,
+            messages INTEGER NOT NULL DEFAULT 0,
             rank INTEGER NOT NULL,
             name TEXT NOT NULL
         );
@@ -127,8 +130,16 @@ def init_db():
             promoted_at INTEGER NOT NULL
         );
         """)
-        # One-week default competition for each group is created when first used.
-        # No destructive schema migration is needed for a fresh install.
+        # Backwards-compatible migrations for databases created by earlier versions.
+        settings_cols = {row[1] for row in con.execute("PRAGMA table_info(settings)")}
+        if "min_messages" not in settings_cols:
+            con.execute("ALTER TABLE settings ADD COLUMN min_messages INTEGER NOT NULL DEFAULT 500")
+        score_cols = {row[1] for row in con.execute("PRAGMA table_info(scores)")}
+        if "messages" not in score_cols:
+            con.execute("ALTER TABLE scores ADD COLUMN messages INTEGER NOT NULL DEFAULT 0")
+        history_cols = {row[1] for row in con.execute("PRAGMA table_info(history)")}
+        if "messages" not in history_cols:
+            con.execute("ALTER TABLE history ADD COLUMN messages INTEGER NOT NULL DEFAULT 0")
     log.info("Database initialized at %s", DB_PATH)
 
 def ensure_settings(chat_id):
@@ -188,8 +199,8 @@ def clean_name(user):
 def get_score_rows(chat_id, limit=10):
     with connect() as con:
         return con.execute(
-            "SELECT user_id,name,points,wins,best_rank,last_active FROM scores "
-            "WHERE chat_id=? ORDER BY points DESC, wins DESC, name COLLATE NOCASE ASC LIMIT ?",
+            "SELECT user_id,name,points,messages,wins,best_rank,last_active FROM scores "
+            "WHERE chat_id=? ORDER BY messages DESC, wins DESC, name COLLATE NOCASE ASC LIMIT ?",
             (chat_id, limit),
         ).fetchall()
 
@@ -212,41 +223,48 @@ def signature(text):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "👑 <b>ADMIN KING MANAGER</b>\n\n"
-        "Group activity ko fun competition banao — bina daily tasks ke. 😎\n\n"
-        "📊 /rank — apni rank\n"
-        "🏆 /leaderboard — top members\n"
-        "👤 /profile — apna profile\n"
-        "⚙️ /setup — owner settings\n"
-        "🛡️ /protect — kisi admin ko protect (owner only; reply karke use karo)\n\n"
-        "Bot ko group mein add karo, admin banao, phir /setup se settings chalao."
+        "👑 <b>ADMIN KING MANAGER</b> 👑\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🔥 <b>GROUP KA CROWN, ACTIVITY SE JEETO!</b> 🔥\n\n"
+        "📩 Har eligible, unique text message count hoga.\n"
+        "🏆 Round ke end par sabse zyada messages wala eligible member King banega.\n"
+        "🎯 Minimum message target owner set karega — default <b>500 messages</b>.\n"
+        "👑 Winner ko admin banana optional hai; owner ise ON/OFF kar sakta hai.\n\n"
+        "<b>PLAYER COMMANDS</b>\n"
+        "📊 /rank — apni rank aur leader se gap\n"
+        "🏆 /leaderboard — top 10 players\n"
+        "🪪 /profile — apna record aur wins\n"
+        "⚔️ /challenge — current King ko challenge\n"
+        "📜 /rules — competition rules\n\n"
+        "⚙️ Group owner: /setup\n"
+        "🛡️ Bot ko group mein admin banao aur privacy mode OFF rakho, taaki messages count ho sakein.\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "😎 <i>Spam nahi, natural chat karo. Crown tumhara bhi ho sakta hai!</i>"
     )
     await update.effective_message.reply_text(msg, parse_mode="HTML")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "👑 <b>ADMIN KING MANAGER — COMMANDS</b>\n\n"
-        "Members:\n"
+        "👑 <b>ADMIN KING MANAGER — COMMAND CENTER</b>\n\n"
+        "<b>🎮 Members</b>\n"
         "/rank — apni rank aur leader se gap\n"
-        "/leaderboard — current competition top 10\n"
-        "/profile — points, wins, title\n"
+        "/leaderboard — current round ke top 10\n"
+        "/profile — messages, wins aur title\n"
         "/challenge — current leader ko friendly challenge\n"
-        "/rules — scoring aur current duration\n\n"
-        "Group owner only:\n"
-        "/setup\n"
-        "/setduration 1-30\n"
-        "/setscore 1-10000\n"
-        "/setbonus 0-500\n"
-        "/setdailycap 1-10000\n"
-        "/encouragement on|off\n"
-        "/comeback on|off\n"
-        "/winneradmin on|off\n"
-        "/rotation on|off\n"
-        "/protect (reply to member/admin message)\n"
-        "/unprotect (reply to member/admin message)\n"
-        "/protected\n\n"
-        "Auto-admin: only the top scorer with at least 100 points can be considered; rights are limited.\n"
-        "Scoring is based on unique, non-command text messages. Repeated messages are limited."
+        "/rules — current competition rules\n\n"
+        "<b>⚙️ Group owner only</b>\n"
+        "/setup — settings dekho\n"
+        "/setduration 7 — round 1–30 days\n"
+        "/setscore 500 — minimum eligible messages\n"
+        "/winneradmin on — winner ko limited admin banana\n"
+        "/rotation on — bot-promoted King ko next round mein rotate karna\n"
+        "/encouragement on|off — close race alerts\n"
+        "/comeback on|off — comeback alerts\n"
+        "/protect — reply karke member/admin protect karo\n"
+        "/unprotect — protection hatao\n"
+        "/protected — protected list\n\n"
+        "📌 <b>Winner rule:</b> round ke end par minimum target poora karne walon mein sabse zyada eligible messages wala member winner hoga. Target kisi ne poora nahi kiya toh koi winner nahi.\n"
+        "🧹 Same text ko 24 ghante ke andar dobara bhejne par count nahi milega; commands aur 3 characters se chhote messages bhi count nahi hote."
     )
     await update.effective_message.reply_text(msg, parse_mode="HTML")
 
@@ -256,31 +274,30 @@ async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     s = get_settings(update.effective_chat.id)
     end = datetime.fromtimestamp(s["competition_end"], TZ).strftime("%d %b %Y, %I:%M %p")
-    protected_count = 0
     with connect() as con:
         protected_count = con.execute(
             "SELECT COUNT(*) FROM protected WHERE chat_id=?", (update.effective_chat.id,)
         ).fetchone()[0]
     text = (
-        "👑 <b>ADMIN KING MANAGER — SETUP</b>\n\n"
-        f"⏳ Duration: <b>{s['duration_days']} day(s)</b>\n"
-        f"⭐ Points per unique message: <b>{s['points_per_message']}</b>\n"
-        f"🎁 Winner bonus: <b>{s['winner_bonus']}</b>\n"
-        f"🧢 Daily point cap: <b>{s['max_points_per_day']}</b>\n"
-        f"🔔 Almost-there alerts: <b>{'ON' if s['encouragement'] else 'OFF'}</b>\n"
+        "👑 <b>ADMIN KING MANAGER — CONTROL ROOM</b> 👑\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"📩 Minimum messages: <b>{s['min_messages']}</b>\n"
+        f"⏳ Round duration: <b>{s['duration_days']} day(s)</b>\n"
+        f"👑 Winner auto-admin: <b>{'ON ✅' if s['winner_admin'] else 'OFF ⛔'}</b>\n"
+        f"🔄 Admin rotation: <b>{'ON ✅' if s['rotation_enabled'] else 'OFF ⛔'}</b>\n"
+        f"🔔 Close-race alerts: <b>{'ON' if s['encouragement'] else 'OFF'}</b>\n"
         f"📈 Comeback alerts: <b>{'ON' if s['comeback_alerts'] else 'OFF'}</b>\n"
-        f"👑 Winner admin promotion: <b>{'ON' if s['winner_admin'] else 'OFF'}</b>\n"
-        f"🔄 Admin rotation: <b>{'ON' if s['rotation_enabled'] else 'OFF'}</b>\n"
-        f"🛡️ Protected admins: <b>{protected_count}</b>\n"
-        f"📅 Competition ends: <b>{end}</b>\n\n"
-        "Commands:\n"
-        "<code>/setduration 1</code> to <code>/setduration 30</code>\n"
-        "<code>/setscore 500</code> (1-10000) • <code>/setbonus 25</code>\n"
-        "<code>/setdailycap 10000</code> (max 10000)\n"
-        "<code>/encouragement on</code> • <code>/comeback off</code>\n"
-        "<code>/winneradmin off</code> • <code>/rotation off</code>\n"
-        "👑 Auto-admin: top scorer ko minimum 100 points chahiye; bot sirf limited rights dega.\n\n"
-        "🛡️ Protect/unprotect: reply to that person's message with /protect or /unprotect."
+        f"🛡️ Protected members: <b>{protected_count}</b>\n"
+        f"📅 Round ends: <b>{end}</b>\n\n"
+        "<b>QUICK SETTINGS</b>\n"
+        "🎯 <code>/setscore 500</code> — minimum message target\n"
+        "⏳ <code>/setduration 7</code> — start a fresh 7-day round\n"
+        "👑 <code>/winneradmin on</code> — winner ko limited admin rights\n"
+        "🔄 <code>/rotation on</code> — next round mein bot-promoted admin rotate\n"
+        "🔔 <code>/encouragement off</code> / <code>/comeback off</code>\n\n"
+        "⚠️ Bot ko admin banao. Auto-admin ke liye uske paas <b>Add New Admins</b> permission honi chahiye.\n"
+        "🛡️ Protect/unprotect karne ke liye member ke message par reply karo.\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.effective_message.reply_text(text, parse_mode="HTML")
 
@@ -304,16 +321,23 @@ async def setduration(update, context):
     )
 
 async def setscore(update, context):
-    if not await owner_only(update, context): return
-    if len(context.args) != 1 or not context.args[0].isdigit() or not 1 <= int(context.args[0]) <= 10000:
-        await update.effective_message.reply_text("Use: /setscore 1-10000\nExample: /setscore 500")
+    if not await owner_only(update, context):
         return
-    score = int(context.args[0])
+    if len(context.args) != 1 or not context.args[0].isdigit() or not 1 <= int(context.args[0]) <= 100000:
+        await update.effective_message.reply_text(
+            "Use: /setscore 1-100000\nExample: /setscore 500"
+        )
+        return
+    minimum = int(context.args[0])
     with connect() as con:
-        con.execute("UPDATE settings SET points_per_message=? WHERE chat_id=?",
-                    (score, update.effective_chat.id))
+        con.execute(
+            "UPDATE settings SET min_messages=? WHERE chat_id=?",
+            (minimum, update.effective_chat.id),
+        )
     await update.effective_message.reply_text(
-        f"⭐ Har eligible unique message par {score} point(s). Daily cap alag se /setdailycap se set hota hai."
+        f"🎯 Minimum winner target set: <b>{minimum} eligible messages</b>.\n"
+        "Ab round ke end par itne messages se kam wale winner nahi ban sakte. 👑",
+        parse_mode="HTML",
     )
 
 async def setbonus(update, context):
@@ -398,122 +422,146 @@ async def protected_list(update, context):
     )
     await update.effective_message.reply_text(text, parse_mode="HTML")
 
-async def rules(update, context):
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         await update.effective_message.reply_text("Group mein use karo.")
         return
     s = get_settings(update.effective_chat.id)
     end = datetime.fromtimestamp(s["competition_end"], TZ).strftime("%d %b, %I:%M %p")
     await update.effective_message.reply_text(
-        f"📜 Competition: {s['duration_days']} day(s)\n"
-        f"⭐ Unique eligible message = {s['points_per_message']} point(s)\n"
-        f"🧢 Daily cap = {s['max_points_per_day']}\n"
-        f"⏰ Ends: {end}\n"
-        "Repeated text and commands don't earn points. Daily missions nahi hain. 😎"
+        "📜 <b>ADMIN KING — RULEBOOK</b> 📜\n\n"
+        f"🎯 Minimum target: <b>{s['min_messages']} eligible messages</b>\n"
+        f"⏳ Round length: <b>{s['duration_days']} days</b>\n"
+        f"📅 Round ends: <b>{end}</b>\n\n"
+        "🏆 Winner: minimum target poora karne walon mein sabse zyada messages wala member.\n"
+        "🚫 Same text 24 hours mein repeat hua toh dobara count nahi hoga.\n"
+        "🚫 Commands aur 3 characters se chhote messages count nahi honge.\n"
+        "👑 Winner ko admin banana group owner ke toggle par depend karta hai.\n"
+        "😎 Fair play — natural chat karo, spam mat karo!",
+        parse_mode="HTML",
     )
 
-async def leaderboard(update, context):
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
-        await update.effective_message.reply_text("Group mein use karo.")
+        await update.effective_message.reply_text("⚠️ Group mein use karo.")
         return
     chat_id = update.effective_chat.id
-    s = get_settings(chat_id)
+    settings = get_settings(chat_id)
     rows = get_score_rows(chat_id, 10)
-    if not rows or all(r["points"] == 0 for r in rows):
-        await update.effective_message.reply_text("🏆 Abhi scores nahi bane. Chat naturally karo—competition shuru hai! 😎")
+    if not rows or all(r["messages"] == 0 for r in rows):
+        await update.effective_message.reply_text(
+            "🏆 Abhi leaderboard khaali hai! Natural chat shuru karo aur crown ke liye race lagao. 👑"
+        )
         return
-    leader = max(1, rows[0]["points"])
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["👑 <b>ADMIN KING LEADERBOARD</b>", f"⏳ {s['duration_days']}-day competition", ""]
-    for i, r in enumerate(rows, 1):
-        lines.append(f"{medals[i-1] if i <= 3 else f'{i}.'} <b>{html.escape(r['name'])}</b> — {r['points']} pts")
-    lines += ["", f"🏁 End: {datetime.fromtimestamp(s['competition_end'], TZ).strftime('%d %b %I:%M %p')}"]
+    lines = [
+        "👑 <b>ADMIN KING LEADERBOARD</b> 👑",
+        "━━━━━━━━━━━━━━━━━━",
+        f"🎯 Winner target: {settings['min_messages']} messages",
+        f"⏳ {settings['duration_days']}-day round",
+        "",
+    ]
+    for i, row in enumerate(rows, 1):
+        marker = medals[i-1] if i <= 3 else f"{i}️⃣"
+        eligible = " ✅" if row["messages"] >= settings["min_messages"] else ""
+        lines.append(f"{marker} <b>{html.escape(row['name'])}</b> — {row['messages']} msgs{eligible}")
+    lines += ["", f"🏁 Ends: {datetime.fromtimestamp(settings['competition_end'], TZ).strftime('%d %b %I:%M %p')}",
+              "✅ = minimum target complete", "━━━━━━━━━━━━━━━━━━"]
     await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
 
-async def rank(update, context):
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
-        await update.effective_message.reply_text("Group mein use karo.")
+        await update.effective_message.reply_text("⚠️ Group mein use karo.")
         return
     chat_id = update.effective_chat.id
     user = update.effective_user
-    s = get_settings(chat_id)
-    rnk, row = current_rank(chat_id, user.id)
+    settings = get_settings(chat_id)
+    rank_no, row = current_rank(chat_id, user.id)
     if not row:
-        await update.effective_message.reply_text("Abhi tumhara score 0 hai. Normal chat karo, points aane lagenge. 😎")
+        await update.effective_message.reply_text(
+            "👀 Abhi tumhara message count 0 hai. Normal chat karo — race abhi baaki hai! 😎"
+        )
         return
     rows = get_score_rows(chat_id, 100000)
-    leader = rows[0]["points"] if rows else 0
-    gap = max(0, leader - row["points"])
+    leader_messages = rows[0]["messages"] if rows else 0
+    gap = max(0, leader_messages - row["messages"])
+    target_left = max(0, settings["min_messages"] - row["messages"])
     out = (
         f"👤 <b>{html.escape(clean_name(user))}</b>\n"
-        f"🏅 Rank: <b>#{rnk}</b>\n"
-        f"⭐ Score: <b>{row['points']}</b>\n"
+        f"🏅 Rank: <b>#{rank_no}</b>\n"
+        f"📩 Eligible messages: <b>{row['messages']}</b>\n"
+        f"🎯 Target remaining: <b>{target_left}</b>\n"
         f"🏆 Wins: <b>{row['wins']}</b>\n"
-        f"📊 {progress_bar(row['points'], leader)}\n"
+        f"📊 {progress_bar(row['messages'], max(1, leader_messages))}\n"
     )
-    if rnk == 1:
-        out += "\n👑 Abhi crown tumhare paas hai! Kursi sambhal ke. 😂"
+    if rank_no == 1:
+        out += "\n👑 Abhi tum leaderboard ke King ho! Crown sambhal ke. 😂"
     else:
-        out += f"\n🔥 Leader se {gap} points ka gap. Comeback possible hai!"
+        out += f"\n🔥 Leader se {gap} messages ka gap hai. Comeback possible!"
     await update.effective_message.reply_text(out, parse_mode="HTML")
 
-async def profile(update, context):
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
-        await update.effective_message.reply_text("Group mein use karo.")
+        await update.effective_message.reply_text("⚠️ Group mein use karo.")
         return
     user = update.effective_user
     chat_id = update.effective_chat.id
-    rnk, row = current_rank(chat_id, user.id)
+    rank_no, row = current_rank(chat_id, user.id)
     with connect() as con:
-        wins = con.execute("SELECT COUNT(*) FROM history WHERE chat_id=? AND user_id=? AND rank=1",
-                           (chat_id, user.id)).fetchone()[0]
+        wins = con.execute(
+            "SELECT COUNT(*) FROM history WHERE chat_id=? AND user_id=? AND rank=1",
+            (chat_id, user.id),
+        ).fetchone()[0]
     title = "🐣 Rookie"
-    if wins >= 5: title = "💎 Legend"
-    elif wins >= 2: title = "🏆 Champion"
-    elif wins == 1: title = "👑 Winner"
-    elif row and row["points"] >= 50: title = "🔥 Consistent Banda"
+    if wins >= 5:
+        title = "💎 Admin King Legend"
+    elif wins >= 2:
+        title = "🏆 Crown Champion"
+    elif wins == 1:
+        title = "👑 Former King"
+    elif row and row["messages"] >= 100:
+        title = "🔥 Active Player"
     await update.effective_message.reply_text(
-        f"👤 <b>{html.escape(clean_name(user))}</b>\n"
+        f"🪪 <b>PLAYER PROFILE</b>\n\n"
+        f"👤 Name: <b>{html.escape(clean_name(user))}</b>\n"
         f"🎖️ Title: {title}\n"
-        f"🏅 Current rank: #{rnk if rnk else '—'}\n"
-        f"⭐ Current score: {row['points'] if row else 0}\n"
-        f"🏆 Wins: {wins}",
-        parse_mode="HTML"
+        f"🏅 Current rank: <b>#{rank_no if rank_no else '—'}</b>\n"
+        f"📩 Current messages: <b>{row['messages'] if row else 0}</b>\n"
+        f"🏆 Round wins: <b>{wins}</b>",
+        parse_mode="HTML",
     )
 
-async def challenge(update, context):
+async def challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
-        await update.effective_message.reply_text("Group mein use karo.")
+        await update.effective_message.reply_text("⚠️ Group mein use karo.")
         return
     rows = get_score_rows(update.effective_chat.id, 1)
     if not rows:
-        await update.effective_message.reply_text("Abhi King decide nahi hua. Pehle score banao! 👑")
+        await update.effective_message.reply_text("👑 Abhi King decide nahi hua. Pehle race shuru karo!")
         return
     king = rows[0]
     await update.effective_message.reply_text(
-        f"⚔️ <b>KING CHALLENGE!</b>\n\n"
-        f"👑 Current King: {html.escape(king['name'])}\n"
-        f"🔥 Challenger: {html.escape(clean_name(update.effective_user))}\n\n"
-        "Challenge accepted! 😈 Leaderboard mein score se faisla hoga.",
-        parse_mode="HTML"
+        "⚔️ <b>KING CHALLENGE!</b> ⚔️\n\n"
+        f"👑 Current Leader: <b>{html.escape(king['name'])}</b>\n"
+        f"📩 Leader messages: <b>{king['messages']}</b>\n"
+        f"🔥 Challenger: <b>{html.escape(clean_name(update.effective_user))}</b>\n\n"
+        "Chat naturally, climb the leaderboard, and claim the crown! 😈",
+        parse_mode="HTML",
     )
 
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Count eligible unique messages; repeated same text is ignored for 24 hours."""
     msg = update.effective_message
     chat = update.effective_chat
     user = update.effective_user
     if not msg or not chat or not user or user.is_bot or chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         return
     text = (msg.text or msg.caption or "").strip()
-    if not text or text.startswith("/"):
+    if not text or text.startswith("/") or len(text) < 3:
         return
-    # Ignore very short spam-like messages.
-    if len(text) < 3:
-        return
-    s = get_settings(chat.id)
+
     current = now_ts()
     sig = signature(text)
-    # Same user can't score the same normalized text again within 24 hours.
     with connect() as con:
         con.execute("DELETE FROM seen_messages WHERE seen_at < ?", (current - 86400,))
         duplicate = con.execute(
@@ -527,54 +575,39 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (chat.id, user.id, sig, current),
         )
         con.execute(
-            "INSERT OR IGNORE INTO scores(chat_id,user_id,name,points,wins,best_rank,last_active) VALUES(?,?,?,0,0,0,?)",
+            "INSERT OR IGNORE INTO scores(chat_id,user_id,name,points,messages,wins,best_rank,last_active) "
+            "VALUES(?,?,?,0,0,0,0,?)",
             (chat.id, user.id, clean_name(user), current),
         )
-        con.execute("UPDATE scores SET name=?,last_active=? WHERE chat_id=? AND user_id=?",
-                    (clean_name(user), current, chat.id, user.id))
-        # Daily point cap; points earned today are derived from history of recent score updates.
-        # A separate counter is kept in SQLite to avoid expensive message-history scans.
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS daily_points (
-                chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, day_key TEXT NOT NULL,
-                points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat_id,user_id,day_key)
-            )
-        """)
-        day_key = datetime.fromtimestamp(current, TZ).strftime("%Y-%m-%d")
-        drow = con.execute("SELECT points FROM daily_points WHERE chat_id=? AND user_id=? AND day_key=?",
-                           (chat.id, user.id, day_key)).fetchone()
-        earned = drow["points"] if drow else 0
-        add = min(s["points_per_message"], max(0, s["max_points_per_day"] - earned))
-        if add <= 0:
-            return
-        con.execute("UPDATE scores SET points=points+? WHERE chat_id=? AND user_id=?",
-                    (add, chat.id, user.id))
-        con.execute("""
-            INSERT INTO daily_points(chat_id,user_id,day_key,points) VALUES(?,?,?,?)
-            ON CONFLICT(chat_id,user_id,day_key) DO UPDATE SET points=points+excluded.points
-        """, (chat.id, user.id, day_key, add))
-    # Keep encouragement low-noise: only check every 10 points and at most one alert every 6h per chat.
-    if s["encouragement"] and add > 0:
+        con.execute(
+            "UPDATE scores SET name=?,last_active=?,messages=messages+1,points=points+1 "
+            "WHERE chat_id=? AND user_id=?",
+            (clean_name(user), current, chat.id, user.id),
+        )
+        settings = con.execute("SELECT * FROM settings WHERE chat_id=?", (chat.id,)).fetchone()
+
+    # Optional, low-frequency nudge when the top two are close.
+    if settings and settings["encouragement"]:
         last_alert_key = f"last_gap_alert_{chat.id}"
         last_alert = context.application.bot_data.get(last_alert_key, 0)
         if current - last_alert > 6 * 3600:
             rows = get_score_rows(chat.id, 2)
-            if len(rows) >= 2 and rows[0]["user_id"] != user.id:
-                gap = rows[0]["points"] - rows[1]["points"]
+            if len(rows) >= 2:
+                gap = rows[0]["messages"] - rows[1]["messages"]
                 if 0 < gap <= 5:
                     context.application.bot_data[last_alert_key] = current
                     try:
                         await msg.reply_text(
-                            f"👀 OYE {html.escape(clean_name(rows[1]))} BHAI!\n"
-                            f"👑 {html.escape(rows[0]['name'])} tumse sirf {gap} point(s) aage hai!\n"
-                            "🔥 Crown chheenna hai toh mauka hai! 😂",
+                            f"👀 <b>RACE ALERT!</b>\n"
+                            f"👑 {html.escape(rows[0]['name'])} bas {gap} message(s) aage hain!\n"
+                            "🔥 Crown ke liye race tight hai! 😂",
                             parse_mode="HTML",
                         )
                     except TelegramError:
                         pass
 
 async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
-    """Finish expired rounds, announce winners, rotate only bot-promoted limited admins."""
+    """Close expired rounds, choose one message-count winner, and optionally rotate bot-promoted admins."""
     with connect() as con:
         chats = con.execute(
             "SELECT chat_id FROM settings WHERE competition_end<=?", (now_ts(),)
@@ -582,44 +615,39 @@ async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
 
     for chatrow in chats:
         chat_id = chatrow["chat_id"]
-        s = get_settings(chat_id)
-        end = s["competition_end"]
-
+        settings = get_settings(chat_id)
+        end = settings["competition_end"]
         with connect() as con:
-            done = con.execute(
-                "SELECT 1 FROM announcements WHERE chat_id=? AND competition_end=?",
-                (chat_id, end),
+            already_done = con.execute(
+                "SELECT 1 FROM announcements WHERE chat_id=? AND competition_end=?", (chat_id, end)
             ).fetchone()
-            if done:
+            if already_done:
                 continue
-
-            rows = con.execute(
-                "SELECT user_id,name,points,wins FROM scores WHERE chat_id=? "
-                "ORDER BY points DESC,wins DESC,name COLLATE NOCASE LIMIT 10",
+            all_rows = con.execute(
+                "SELECT user_id,name,points,messages,wins FROM scores WHERE chat_id=? "
+                "ORDER BY messages DESC,wins DESC,name COLLATE NOCASE ASC",
                 (chat_id,),
             ).fetchall()
             con.execute(
-                "INSERT INTO announcements(chat_id,competition_end) VALUES(?,?)",
-                (chat_id, end),
+                "INSERT INTO announcements(chat_id,competition_end) VALUES(?,?)", (chat_id, end)
             )
-            for i, row in enumerate(rows, 1):
+            for i, row in enumerate(all_rows, 1):
                 con.execute(
-                    "INSERT INTO history(chat_id,user_id,period_end,points,rank,name) VALUES(?,?,?,?,?,?)",
-                    (chat_id, row["user_id"], end, row["points"], i, row["name"]),
+                    "INSERT INTO history(chat_id,user_id,period_end,points,messages,rank,name) VALUES(?,?,?,?,?,?,?)",
+                    (chat_id, row["user_id"], end, row["points"], row["messages"], i, row["name"]),
                 )
 
-            if rows and rows[0]["points"] > 0:
-                con.execute(
-                    "UPDATE scores SET wins=wins+1 WHERE chat_id=? AND user_id=?",
-                    (chat_id, rows[0]["user_id"]),
-                )
-                winner_id = rows[0]["user_id"]
-                winner_name = rows[0]["name"]
-                winner_points = rows[0]["points"]
+            min_messages = settings["min_messages"]
+            eligible = next((r for r in all_rows if r["messages"] >= min_messages), None)
+            if eligible:
+                winner_id = eligible["user_id"]
+                winner_name = eligible["name"]
+                winner_messages = eligible["messages"]
+                con.execute("UPDATE scores SET wins=wins+1 WHERE chat_id=? AND user_id=?", (chat_id, winner_id))
             else:
-                winner_id, winner_name, winner_points = None, "No winner yet", 0
+                winner_id, winner_name, winner_messages = None, "No winner", 0
 
-            days = s["duration_days"]
+            days = settings["duration_days"]
             new_start = max(end, now_ts())
             new_end = new_start + days * 86400
             con.execute(
@@ -631,17 +659,20 @@ async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
 
         if not winner_id:
             announcement = (
-                "⏰ <b>ROUND OVER!</b>\n\nIs round mein score nahi bana. "
-                "Agla round ab shuru! 😎"
+                "⏰ <b>ROUND OVER!</b> ⏰\n\n"
+                f"Is round mein kisi ne minimum <b>{min_messages} eligible messages</b> ka target complete nahi kiya.\n"
+                "👑 Is baar koi winner nahi — agle round mein try karo!\n\n"
+                f"🔥 Naya {days}-day round shuru ho gaya."
             )
         else:
             announcement = (
-                "🏆━━━━━━━━━━━━━━🏆\n\n"
-                "🎉 <b>CONGRATULATIONS!</b> 🎉\n\n"
-                f"👑 <b>{html.escape(winner_name)}</b> is period ke VIJETA hain!\n"
-                f"⭐ Winning score: <b>{winner_points}</b>\n\n"
-                "🥈 Aur baaki legends — agla round tumhara ho sakta hai! 😂\n"
-                "🏆━━━━━━━━━━━━━━🏆\n\n"
+                "🏆━━━━━━━━━━━━━━━━━━🏆\n\n"
+                "🎉 <b>THE NEW ADMIN KING!</b> 🎉\n\n"
+                f"👑 <b>{html.escape(winner_name)}</b> ne crown jeet liya!\n"
+                f"📩 Winning count: <b>{winner_messages} eligible messages</b>\n"
+                f"🎯 Minimum target: <b>{min_messages}</b> — COMPLETE ✅\n\n"
+                "🥈 Baaki players, agla crown tumhara ho sakta hai! 😈\n"
+                "🏆━━━━━━━━━━━━━━━━━━🏆\n"
                 f"⏳ Naya {days}-day round ab shuru ho gaya!"
             )
         try:
@@ -649,8 +680,7 @@ async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
         except TelegramError as exc:
             log.warning("Could not announce for %s: %s", chat_id, exc)
 
-        # First rotate out the previous winner that THIS bot promoted.
-        # Never alter protected people or admins appointed outside this bot.
+        # Demote only the previous winner that this bot itself promoted.
         rotation_blocked = False
         with connect() as con:
             previous = con.execute(
@@ -658,15 +688,13 @@ async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
             ).fetchone()
 
         if previous:
-            previous_id = previous["user_id"]
-            previous_name = previous["name"]
+            previous_id, previous_name = previous["user_id"], previous["name"]
             if await user_is_protected(chat_id, previous_id):
                 rotation_blocked = True
                 try:
                     await context.bot.send_message(
                         chat_id,
-                        f"🛡️ {html.escape(previous_name)} protected hain, isliye bot unhe demote nahi karega. "
-                        "Is round mein kisi naye winner ko admin nahi banaya gaya.",
+                        f"🛡️ {html.escape(previous_name)} protected hain; bot unhe demote nahi karega. Safety ke liye naye winner ko admin nahi banaya.",
                         parse_mode="HTML",
                     )
                 except TelegramError:
@@ -674,105 +702,72 @@ async def check_competitions(context: ContextTypes.DEFAULT_TYPE):
             else:
                 try:
                     await context.bot.promote_chat_member(
-                        chat_id=chat_id,
-                        user_id=previous_id,
-                        can_manage_chat=False,
-                        can_delete_messages=False,
-                        can_manage_video_chats=False,
-                        can_restrict_members=False,
-                        can_promote_members=False,
-                        can_change_info=False,
-                        can_invite_users=False,
-                        can_pin_messages=False,
-                        can_post_messages=False,
-                        can_edit_messages=False,
-                        can_post_stories=False,
-                        can_edit_stories=False,
-                        can_delete_stories=False,
-                        can_manage_topics=False,
+                        chat_id=chat_id, user_id=previous_id,
+                        can_manage_chat=False, can_delete_messages=False,
+                        can_manage_video_chats=False, can_restrict_members=False,
+                        can_promote_members=False, can_change_info=False,
+                        can_invite_users=False, can_pin_messages=False,
+                        can_post_messages=False, can_edit_messages=False,
+                        can_post_stories=False, can_edit_stories=False,
+                        can_delete_stories=False, can_manage_topics=False,
                     )
                     with connect() as con:
                         con.execute("DELETE FROM promoted_winners WHERE chat_id=?", (chat_id,))
                 except TelegramError as exc:
                     rotation_blocked = True
-                    log.warning("Could not demote previous bot-promoted winner in %s: %s", chat_id, exc)
+                    log.warning("Could not demote previous winner in %s: %s", chat_id, exc)
                     try:
                         await context.bot.send_message(
                             chat_id,
-                            "⚠️ Pichhle bot-promoted winner ko demote nahi kar paya, isliye safety ke liye "
-                            "naye winner ko admin nahi banaya. Group owner bot permissions check kare.",
+                            "⚠️ Pichhle bot-promoted winner ko demote nahi kar paya. Safety ke liye naye winner ko admin nahi banaya; bot permissions check karo.",
                         )
                     except TelegramError:
                         pass
 
-        # Only the single top scorer can be promoted, and only with at least 100 points.
-        if s["winner_admin"] and winner_id and winner_points >= 100 and not rotation_blocked:
+        if settings["winner_admin"] and winner_id and not rotation_blocked:
             try:
                 if await user_is_protected(chat_id, winner_id):
                     await context.bot.send_message(
-                        chat_id,
-                        f"🛡️ {html.escape(winner_name)} protected hain; automatic promotion skip ki gayi.",
-                        parse_mode="HTML",
+                        chat_id, f"🛡️ {html.escape(winner_name)} protected hain; auto-promotion skip hui.", parse_mode="HTML"
                     )
                 else:
                     member = await context.bot.get_chat_member(chat_id, winner_id)
                     if member.status in ("administrator", "creator"):
-                        # Do not overwrite an admin's existing privileges; those may have been
-                        # granted manually or by another bot and are outside this bot's tracking.
                         await context.bot.send_message(
                             chat_id,
-                            f"⚠️ {html.escape(winner_name)} pehle se admin/owner hain. Existing rights safe rakhne ke liye "
-                            "bot ne unke permissions change nahi kiye. Group owner manually rights check kare.",
+                            f"⚠️ {html.escape(winner_name)} pehle se admin/owner hain. Existing permissions change nahi kiye.",
                             parse_mode="HTML",
                         )
                     else:
                         await context.bot.promote_chat_member(
-                            chat_id=chat_id,
-                            user_id=winner_id,
-                            can_manage_chat=True,
-                            can_delete_messages=False,
-                            can_manage_video_chats=False,
-                            can_restrict_members=False,
-                            can_promote_members=False,
-                            can_change_info=False,
-                            can_invite_users=False,
-                            can_pin_messages=False,
-                            can_post_messages=False,
-                            can_edit_messages=False,
-                            can_post_stories=False,
-                            can_edit_stories=False,
-                            can_delete_stories=False,
-                            can_manage_topics=False,
+                            chat_id=chat_id, user_id=winner_id,
+                            can_manage_chat=True, can_delete_messages=False,
+                            can_manage_video_chats=False, can_restrict_members=False,
+                            can_promote_members=False, can_change_info=False,
+                            can_invite_users=False, can_pin_messages=False,
+                            can_post_messages=False, can_edit_messages=False,
+                            can_post_stories=False, can_edit_stories=False,
+                            can_delete_stories=False, can_manage_topics=False,
                         )
                         with connect() as con:
                             con.execute(
-                                "INSERT OR REPLACE INTO promoted_winners(chat_id,user_id,name,promoted_at) "
-                                "VALUES(?,?,?,?)",
+                                "INSERT OR REPLACE INTO promoted_winners(chat_id,user_id,name,promoted_at) VALUES(?,?,?,?)",
                                 (chat_id, winner_id, winner_name, now_ts()),
                             )
                         await context.bot.send_message(
                             chat_id,
-                            f"👑 {html.escape(winner_name)} ko limited admin access diya gaya. "
-                            "Add admins, ban members, delete messages, pin messages aur settings ke rights OFF hain.",
+                            f"👑 <b>{html.escape(winner_name)}</b> ko limited admin access diya gaya!\n"
+                            "🔒 Ban members, delete messages, pin messages aur add admins permissions OFF hain.",
                             parse_mode="HTML",
                         )
             except TelegramError as exc:
                 log.warning("Winner promotion failed in %s: %s", chat_id, exc)
                 try:
                     await context.bot.send_message(
-                        chat_id,
-                        "⚠️ Winner ko limited admin nahi banaya ja saka. Bot ke admin permissions check karo.",
+                        chat_id, "⚠️ Winner ko admin nahi bana saka. Bot ke admin permissions check karo."
                     )
                 except TelegramError:
                     pass
-        elif s["winner_admin"] and winner_id and winner_points < 100:
-            try:
-                await context.bot.send_message(
-                    chat_id,
-                    f"ℹ️ Winner admin banne ke liye minimum 100 points chahiye. Is baar score {winner_points} tha; promotion nahi hui.",
-                )
-            except TelegramError:
-                pass
 
 async def post_init(application: Application):
     log.info("Starting Telegram bot connection check...")
