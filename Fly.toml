@@ -5,5 +5,5 @@ primary_region = "ams"
 [build]
 
 [processes]
-  app = "python main.py"
+  app = "python bot.py"
 
