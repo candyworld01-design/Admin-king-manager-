@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("admin-king-manager")
 
-TOKEN = os.getenv("BOT_TOKEN", "").strip()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
 OWNER_ID = int(OWNER_ID_RAW) if OWNER_ID_RAW.isdigit() else None
 TZ = ZoneInfo("Asia/Kolkata")
